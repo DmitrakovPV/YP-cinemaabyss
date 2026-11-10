@@ -1,0 +1,7 @@
+site_name: Architecture
+theme: readthedocs
+plugins:
+  - search
+  - plantuml:
+      puml_url: http://127.0.0.1:8001/
+      format: svg
