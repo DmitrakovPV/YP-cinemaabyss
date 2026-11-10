@@ -1,166 +1,98 @@
-name: Docker Build and Push
+name: Build, Push and Test
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
-    paths:
-      - 'src/**'
-      - '.github/workflows/docker-build-push.yml'
-  release:
-    types: [published]
+    branches: [ main, master, cinema ]
+  pull_request:
+    branches: [ main, master, cinema ]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  MONOLITH_IMAGE_NAME: ${{ github.repository }}/monolith
-  MOVIES_SERVICE_IMAGE_NAME: ${{ github.repository }}/movies-service
-  EVENTS_SERVICE_IMAGE_NAME: ${{ github.repository }}/events-service
-  PROXY_SERVICE_IMAGE_NAME: ${{ github.repository }}/proxy-service
+  IMAGE_PREFIX: ${{ github.repository_owner }}/yp-cinemaabyss
 
 jobs:
-  test-api:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Start Docker Compose environment
-        run: docker compose up -d --build
-
-      - name: Wait for services to be ready
-        run: |
-          echo "Ожидание запуска сервисов..."
-          sleep 20
-          docker compose ps
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Run Postman API Tests
-        run: |
-          cd tests/postman
-          npm install
-          npm run test:local
-
-      - name: Show logs on failure
-        if: failure()
-        run: |
-          docker compose logs proxy-service
-          docker compose logs events-service
-          docker compose logs monolith
-
-      - name: Stop Docker Compose
-        if: always()
-        run: docker compose down -v
-        
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: monolith
+            context: src/monolith
+            image: monolith
+          - name: movies-service
+            context: src/microservices/movies
+            image: movies-service
+          - name: events-service
+            context: src/microservices/events
+            image: events-service
+          - name: proxy-service
+            context: src/microservices/proxy
+            image: proxy-service
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v4
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v2
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Monolith
-        id: meta-monolith
-        uses: docker/metadata-action@v4
+      - name: Build and push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v7
         with:
-          images: ${{ env.REGISTRY }}/${{ env.MONOLITH_IMAGE_NAME }}
+          context: ${{ matrix.service.context }}
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=short
-            type=ref,event=branch
-            latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.image }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+          provenance: false
+          sbom: false
+  api-tests:
+    needs: build-and-push
+    runs-on: ubuntu-latest
 
-      - name: Build and push Monolith Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./src/monolith
-          push: true
-          tags: ${{ steps.meta-monolith.outputs.tags }}
-          labels: ${{ steps.meta-monolith.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+    steps:
+      - uses: actions/checkout@v5
 
-      - name: Extract metadata (tags, labels) for Movies Service
-        id: meta-movies
-        uses: docker/metadata-action@v4
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.MOVIES_SERVICE_IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=short
-            type=ref,event=branch
-            latest
+      - name: Start services with Docker Compose
+        run: |
+          docker compose up -d --build
 
-      - name: Build and push Movies Service Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./src/microservices/movies
-          push: true
-          tags: ${{ steps.meta-movies.outputs.tags }}
-          labels: ${{ steps.meta-movies.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: Extract metadata (tags, labels) for Events Service
-        id: meta-events
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.EVENTS_SERVICE_IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=short
-            type=ref,event=branch
-            latest
+      - name: Wait for all services to become healthy
+        run: |
+          set -e
+          for url in \
+            http://127.0.0.1:8080/health \
+            http://127.0.0.1:8081/api/movies/health \
+            http://127.0.0.1:8082/api/events/health \
+            http://127.0.0.1:8000/health ; do
+            echo "Waiting for $url ..."
+            timeout 180 bash -c "until curl -sf '$url' >/dev/null; do sleep 3; done"
+          done
+          echo "All services are up"
 
-      - name: Build and push Events Service Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./src/microservices/events
-          push: true
-          tags: ${{ steps.meta-events.outputs.tags }}
-          labels: ${{ steps.meta-events.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: Extract metadata for Proxy Service
-        id: meta-proxy
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.PROXY_SERVICE_IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,format=short
-            type=ref,event=branch
-            latest
+      - name: Run Newman API tests
+        working-directory: tests/postman
+        run: |
+          npm ci
+          npm run test:local
 
-      - name: Build and push Proxy Service Docker image
-        uses: docker/build-push-action@v5
+      - name: Upload Newman HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          context: ./src/microservices/proxy
-          push: true
-          tags: ${{ steps.meta-proxy.outputs.tags }}
-          labels: ${{ steps.meta-proxy.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      
+          name: newman-report
+          path: tests/postman/reports/
