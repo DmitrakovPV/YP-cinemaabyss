@@ -593,7 +593,7 @@
                   "",
                   "pm.test(\"Response has status success\", function () {",
                   "    var jsonData = pm.response.json();",
-                  "    pm.expect(jsonData.status).to.equal(\"success\");",
+                  "    pm.expect(jsonData.status).to.equal(\"event_created\");",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -632,7 +632,7 @@
                   "",
                   "pm.test(\"Response has status success\", function () {",
                   "    var jsonData = pm.response.json();",
-                  "    pm.expect(jsonData.status).to.equal(\"success\");",
+                  "    pm.expect(jsonData.status).to.equal(\"event_created\");",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -671,7 +671,7 @@
                   "",
                   "pm.test(\"Response has status success\", function () {",
                   "    var jsonData = pm.response.json();",
-                  "    pm.expect(jsonData.status).to.equal(\"success\");",
+                  "    pm.expect(jsonData.status).to.equal(\"event_created\");",
                   "});"
                 ],
                 "type": "text/javascript"
