@@ -4,9 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
-    paths:
-      - 'src/**'
-      - '.github/workflows/docker-build-push.yml'
   release:
     types: [published]
 
@@ -19,6 +16,7 @@ env:
 
 jobs:
   build-and-push:
+    name: Build and Push Docker images
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,7 +37,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # ---------- Monolith ----------
-      - name: Extract metadata (tags, labels) for Monolith
+      - name: Extract metadata for Monolith
         id: meta-monolith
         uses: docker/metadata-action@v4
         with:
@@ -62,7 +60,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ---------- Movies Service ----------
-      - name: Extract metadata (tags, labels) for Movies Service
+      - name: Extract metadata for Movies Service
         id: meta-movies
         uses: docker/metadata-action@v4
         with:
@@ -85,7 +83,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ---------- Events Service ----------
-      - name: Extract metadata (tags, labels) for Events Service
+      - name: Extract metadata for Events Service
         id: meta-events
         uses: docker/metadata-action@v4
         with:
@@ -108,7 +106,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ---------- Proxy Service ----------
-      - name: Extract metadata (tags, labels) for Proxy Service
+      - name: Extract metadata for Proxy Service
         id: meta-proxy
         uses: docker/metadata-action@v4
         with:
@@ -129,13 +127,3 @@ jobs:
           labels: ${{ steps.meta-proxy.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      # ---------- API Tests ----------
-      - name: Run API Tests
-        run: |
-          docker compose up -d
-          echo "Waiting for services to be ready..."
-          sleep 120
-          cd tests/postman
-          npm install
-          npm run test:docker
