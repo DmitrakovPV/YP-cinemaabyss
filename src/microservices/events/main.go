@@ -33,6 +33,14 @@ func main() {
 	http.HandleFunc("/api/events/user", handleEvent("user-events"))
 	http.HandleFunc("/api/events/payment", handleEvent("payment-events"))
 	http.HandleFunc("/api/events/movie", handleEvent("movie-events"))
+	http.HandleFunc("/api/events/health", func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "status": true,
+        "service": "events-service",
+    })
+})
 
 	// 4. Запускаем HTTP-сервер
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
